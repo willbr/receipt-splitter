@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Receipt Splitter</title>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --panel: #fff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --line: #e4e2dc;
+    --accent: #2d6a4f;
+    --accent-soft: #d8ece2;
+    --warn: #b54708;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  header { padding: 6px 14px; border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 15px; font-weight: 600; }
+  header .grow { flex: 1; }
+  header input, header select { font: inherit; padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
+  header input[type=text] { width: 150px; }
+  header label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; }
+  main { display: grid; grid-template-columns: 1fr 320px; gap: 12px; padding: 12px 14px; align-items: start; }
+  main > .full { grid-column: 1 / -1; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  section h2 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  section + section { margin-top: 10px; }
+  textarea { width: 100%; min-height: 110px; resize: vertical; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+    border: 1px solid var(--line); border-radius: 5px; padding: 6px; background: #fdfdfb; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 6px; }
+  button { font: inherit; padding: 4px 9px; border: 1px solid var(--line); background: #fff; border-radius: 5px; cursor: pointer; }
+  button:hover { background: #f3f1eb; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: #245741; }
+  button.ghost { border-color: transparent; background: transparent; color: var(--muted); padding: 3px 6px; }
+  button.ghost:hover { color: var(--ink); background: #f3f1eb; }
+  input[type=text], input[type=number], input[type=date], select {
+    font: inherit; padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
+  input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.total td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: none; }
+  tr.unpriced td.price input { color: var(--warn); }
+  .assignees { display: flex; flex-wrap: wrap; gap: 3px; }
+  .chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 999px;
+    border: 1px solid var(--line); background: #fff; font-size: 11px; cursor: pointer; user-select: none; }
+  .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .person-row { display: flex; gap: 5px; align-items: center; margin-bottom: 4px; }
+  .person-row input { flex: 1; }
+  .summary-table td.num { font-weight: 600; }
+  .hint { color: var(--muted); font-size: 11px; }
+  .pill { display: inline-block; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 10px; margin-left: 5px; }
+  .delete:hover { color: var(--warn); }
+  details > summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .receipts { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .receipt { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: #fdfdfb; }
+  .receipt h3 { margin: 0 0 6px; font-size: 13px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .receipt h3 .who { font-weight: 600; }
+  .receipt h3 .amt { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+  .receipt table { font-size: 12px; }
+  .receipt td { padding: 2px 0; border: none; vertical-align: top; }
+  .receipt td.share { color: var(--muted); font-size: 10px; white-space: nowrap; padding-left: 6px; }
+  .receipt td.amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 6px; }
+  .receipt .empty { color: var(--muted); font-size: 12px; }
+  .receipt .meta-line { color: var(--muted); font-size: 11px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Receipt Splitter</h1>
+  <label>Receipt
+    <select id="receipt-picker"></select>
+  </label>
+  <button id="receipt-new">New</button>
+  <button id="receipt-dup">Duplicate</button>
+  <button id="receipt-del" class="ghost delete">Delete</button>
+  <span class="grow"></span>
+  <label>Name<input type="text" id="meta-name" placeholder="e.g. Pub"></label>
+  <label>Date<input type="date" id="meta-date"></label>
+</header>
+
+<main>
+  <section>
+    <h2>Items</h2>
+    <table id="items">
+      <thead>
+        <tr>
+          <th style="width:30px">#</th>
+          <th>Item</th>
+          <th class="num" style="width:50px">Qty</th>
+          <th class="num" style="width:96px">Price (£)</th>
+          <th style="min-width:160px">Assigned to</th>
+          <th style="width:20px"></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="row" style="margin-top:6px">
+      <button id="add-row">+ Add line</button>
+      <span class="hint">Blank-priced lines are highlighted and excluded from the split.</span>
+    </div>
+  </section>
+
+  <div>
+    <section>
+      <h2>People</h2>
+      <div id="people"></div>
+      <div class="row">
+        <input type="text" id="new-person" placeholder="Add a person…" style="flex:1">
+        <button id="add-person" class="primary">Add</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Summary</h2>
+      <table class="summary-table" id="summary">
+        <thead><tr><th>Person</th><th class="num">Owes</th></tr></thead>
+        <tbody></tbody>
+        <tfoot></tfoot>
+      </table>
+      <div class="hint" id="summary-note" style="margin-top:6px"></div>
+    </section>
+  </div>
+
+  <section class="full">
+    <h2>Per-person receipts</h2>
+    <div id="per-person" class="receipts"></div>
+  </section>
+
+  <section class="full">
+    <h2>Import / Export TSV</h2>
+    <details>
+      <summary>Paste TSV (line / item / qty / price)</summary>
+      <textarea id="tsv" placeholder="1&#9;Item&#9;Quantity&#9;Price&#10;2&#9;Earl Grey&#9;1&#9;3.45"></textarea>
+      <div class="row" style="margin-top:6px">
+        <button id="load-tsv" class="primary">Load TSV into current receipt</button>
+        <button id="download-tsv">Download TSV</button>
+        <button id="copy-tsv">Copy as TSV</button>
+        <button id="load-example" class="ghost">Load example</button>
+      </div>
+    </details>
+  </section>
+</main>
+
+<script>
+const EXAMPLE_TSV = `1\tItem\tQuantity\tPrice
+2\tEarl Grey\t1\t3.45
+3\tWith Oat Milk\t1\t0.00
+4\tRekord Strawberry\t1\t6.80
+5\tRekord Wild Berry\t1\t6.80
+6\tPork Terrine\t1\t7.75
+7\tSquid\t1\t7.50
+8\tToad In The Hole\t1\t15.25
+9\tSteak & Ale Pie\t1\t16.25
+10\tOnion Rings\t1\t3.50
+11\t8oz Sirloin\t1\t22.00
+12\tCott Pie Croq\t1\t4.25
+13\tCB 2604 Cocktail 2 4 £12\t1\t12.00
+14\tPink Berry 0%\t1\t
+15\tEspresso Martini\t1\t
+16\tCaramel Sundae\t1\t7.25
+17\tClementine Tart\t1\t7.25
+18\tMini Pud & Drink\t1\t7.50
+19\tTOTAL\t\t127.55`;
+
+const STORAGE_KEY = 'receipt-splitter-store-v2';
+
+const store = {
+  activeId: null,
+  receipts: {},   // id -> Receipt
+  nextReceiptId: 1,
+};
+
+let nextLocalPerson = 1;
+let nextLocalItem = 1;
+function uid(kind) {
+  return kind === 'person' ? `p${nextLocalPerson++}` : `i${nextLocalItem++}`;
+}
+
+const DEFAULT_PEOPLE = ['Will', 'Tim', 'Amy'];
+
+function makeDefaultPeople() {
+  return DEFAULT_PEOPLE.map(name => ({ id: uid('person'), name }));
+}
+
+function newReceipt({ name = 'Untitled', date = new Date().toISOString().slice(0, 10), items = [], people } = {}) {
+  const id = `r${store.nextReceiptId++}`;
+  return { id, name, date, items, people: people ?? makeDefaultPeople() };
+}
+
+function active() { return store.receipts[store.activeId]; }
+
+const $ = sel => document.querySelector(sel);
+const itemsBody  = $('#items tbody');
+const peopleEl   = $('#people');
+const summaryEl  = $('#summary tbody');
+const summaryFoot = $('#summary tfoot');
+const summaryNote = $('#summary-note');
+const perPersonEl = $('#per-person');
+const picker = $('#receipt-picker');
+const nameInput = $('#meta-name');
+const dateInput = $('#meta-date');
+
+function parseTSV(text) {
+  const rows = text.replace(/\r/g, '').split('\n').map(l => l.split('\t'));
+  const items = [];
+  for (const r of rows) {
+    if (!r.length || r.every(c => !c || !c.trim())) continue;
+    const lower = r.map(c => (c || '').trim().toLowerCase());
+    if (lower.includes('item') && (lower.includes('price') || lower.includes('qty') || lower.includes('quantity'))) continue;
+
+    let line, label, qty, price;
+    if (r.length >= 4) [line, label, qty, price] = r;
+    else if (r.length === 3) [label, qty, price] = r;
+    else if (r.length === 2) [label, price] = r;
+    else continue;
+
+    label = (label || '').trim();
+    if (!label) continue;
+
+    const isTotal = /^total\b/i.test(label);
+    const qtyNum = parseFloat((qty || '').toString().trim());
+    const priceNum = parseFloat((price || '').toString().replace(/[^\d.\-]/g, ''));
+    items.push({
+      id: uid('item'),
+      label,
+      qty: Number.isFinite(qtyNum) ? qtyNum : (isTotal ? null : 1),
+      price: Number.isFinite(priceNum) ? priceNum : null,
+      assigned: [],
+      isTotal,
+    });
+  }
+  return items;
+}
+
+function loadTSVIntoActive(text) {
+  const items = parseTSV(text);
+  if (!items.length) { alert('No rows parsed.'); return; }
+  active().items = items;
+  render(); save();
+}
+
+function addPerson(name) {
+  name = (name || '').trim();
+  if (!name) return;
+  const r = active();
+  if (r.people.some(p => p.name.toLowerCase() === name.toLowerCase())) return;
+  r.people.push({ id: uid('person'), name });
+  render(); save();
+}
+
+function removePerson(id) {
+  const r = active();
+  r.people = r.people.filter(p => p.id !== id);
+  for (const it of r.items) it.assigned = it.assigned.filter(x => x !== id);
+  render(); save();
+}
+
+function renamePerson(id, name) {
+  const p = active().people.find(p => p.id === id);
+  if (p) { p.name = name; render(); save(); }
+}
+
+function toggleAssign(itemId, personId) {
+  const it = active().items.find(i => i.id === itemId);
+  if (!it) return;
+  const idx = it.assigned.indexOf(personId);
+  if (idx >= 0) it.assigned.splice(idx, 1);
+  else it.assigned.push(personId);
+  render(); save();
+}
+
+function fmt(n) {
+  if (n == null || !Number.isFinite(n)) return '';
+  const sign = n < 0 ? '-' : '';
+  return `${sign}£${Math.abs(n).toFixed(2)}`;
+}
+
+function computeSplit() {
+  const r = active();
+  const owe = Object.fromEntries(r.people.map(p => [p.id, 0]));
+  const itemsByPerson = Object.fromEntries(r.people.map(p => [p.id, []]));
+  let assignedTotal = 0, unassignedTotal = 0, unpricedCount = 0;
+  const unassignedItems = [];
+
+  for (const it of r.items) {
+    if (it.isTotal) continue;
+    if (it.price == null) { unpricedCount++; continue; }
+    const assignees = it.assigned.filter(id => owe[id] != null);
+    if (!assignees.length) { unassignedTotal += it.price; unassignedItems.push(it); continue; }
+    const share = it.price / assignees.length;
+    for (const id of assignees) {
+      owe[id] += share;
+      itemsByPerson[id].push({ item: it, share, splitN: assignees.length });
+    }
+    assignedTotal += it.price;
+  }
+
+  const declaredTotal = r.items.find(i => i.isTotal)?.price ?? null;
+  return { owe, itemsByPerson, assignedTotal, unassignedTotal, unassignedItems, unpricedCount, declaredTotal };
+}
+
+function renderHeader() {
+  const r = active();
+  picker.innerHTML = '';
+  Object.values(store.receipts)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || a.name.localeCompare(b.name))
+    .forEach(rc => {
+      const opt = document.createElement('option');
+      opt.value = rc.id;
+      opt.textContent = `${rc.date || '----'} · ${rc.name || 'Untitled'}`;
+      if (rc.id === store.activeId) opt.selected = true;
+      picker.appendChild(opt);
+    });
+  nameInput.value = r.name || '';
+  dateInput.value = r.date || '';
+}
+
+function renderItems() {
+  const r = active();
+  itemsBody.innerHTML = '';
+  r.items.forEach((it, idx) => {
+    const tr = document.createElement('tr');
+    if (it.isTotal) tr.classList.add('total');
+    if (!it.isTotal && it.price == null) tr.classList.add('unpriced');
+
+    const idxTd = document.createElement('td');
+    idxTd.textContent = idx + 1;
+    idxTd.style.color = 'var(--muted)';
+
+    const labelTd = document.createElement('td');
+    const labelInput = document.createElement('input');
+    labelInput.type = 'text';
+    labelInput.value = it.label;
+    labelInput.style.width = '100%';
+    labelInput.style.border = 'none';
+    labelInput.style.background = 'transparent';
+    labelInput.style.padding = '1px 0';
+    labelInput.addEventListener('change', () => { it.label = labelInput.value; it.isTotal = /^total\b/i.test(it.label); save(); render(); });
+    labelTd.appendChild(labelInput);
+
+    const qtyTd = document.createElement('td');
+    qtyTd.className = 'num';
+    if (!it.isTotal) {
+      const qi = document.createElement('input');
+      qi.type = 'number'; qi.step = 'any'; qi.min = '0';
+      qi.value = it.qty ?? '';
+      qi.style.width = '46px'; qi.style.textAlign = 'right';
+      qi.addEventListener('change', () => { const v = parseFloat(qi.value); it.qty = Number.isFinite(v) ? v : null; save(); });
+      qtyTd.appendChild(qi);
+    }
+
+    const priceTd = document.createElement('td');
+    priceTd.className = 'num price';
+    const pi = document.createElement('input');
+    pi.type = 'number'; pi.step = '0.01';
+    pi.value = it.price == null ? '' : it.price;
+    pi.style.width = '84px'; pi.style.textAlign = 'right';
+    pi.addEventListener('change', () => {
+      const v = parseFloat(pi.value);
+      it.price = Number.isFinite(v) ? v : null;
+      save(); render();
+    });
+    priceTd.appendChild(pi);
+
+    const assignTd = document.createElement('td');
+    if (!it.isTotal) {
+      const wrap = document.createElement('div');
+      wrap.className = 'assignees';
+      if (r.people.length === 0) {
+        const hint = document.createElement('span');
+        hint.className = 'hint';
+        hint.textContent = 'Add people →';
+        wrap.appendChild(hint);
+      } else {
+        for (const p of r.people) {
+          const chip = document.createElement('span');
+          chip.className = 'chip' + (it.assigned.includes(p.id) ? ' on' : '');
+          chip.textContent = p.name;
+          chip.addEventListener('click', () => toggleAssign(it.id, p.id));
+          wrap.appendChild(chip);
+        }
+        const all = document.createElement('span');
+        all.className = 'chip';
+        all.title = 'Assign to everyone';
+        all.textContent = 'all';
+        all.addEventListener('click', () => {
+          const everyone = r.people.every(p => it.assigned.includes(p.id));
+          it.assigned = everyone ? [] : r.people.map(p => p.id);
+          render(); save();
+        });
+        wrap.appendChild(all);
+      }
+      assignTd.appendChild(wrap);
+    }
+
+    const delTd = document.createElement('td');
+    const del = document.createElement('button');
+    del.className = 'ghost delete';
+    del.textContent = '×';
+    del.title = 'Remove line';
+    del.addEventListener('click', () => {
+      r.items = r.items.filter(x => x.id !== it.id);
+      render(); save();
+    });
+    delTd.appendChild(del);
+
+    tr.append(idxTd, labelTd, qtyTd, priceTd, assignTd, delTd);
+    itemsBody.appendChild(tr);
+  });
+}
+
+function renderPeople() {
+  const r = active();
+  peopleEl.innerHTML = '';
+  if (!r.people.length) {
+    const hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'No people yet.';
+    peopleEl.appendChild(hint);
+    return;
+  }
+  for (const p of r.people) {
+    const row = document.createElement('div');
+    row.className = 'person-row';
+    const name = document.createElement('input');
+    name.type = 'text'; name.value = p.name;
+    name.addEventListener('change', () => renamePerson(p.id, name.value));
+    const del = document.createElement('button');
+    del.className = 'ghost delete';
+    del.textContent = '×';
+    del.title = 'Remove person';
+    del.addEventListener('click', () => removePerson(p.id));
+    row.append(name, del);
+    peopleEl.appendChild(row);
+  }
+}
+
+function renderSummary(split) {
+  const r = active();
+  summaryEl.innerHTML = '';
+  summaryFoot.innerHTML = '';
+  const { owe, assignedTotal, unassignedTotal, unpricedCount, declaredTotal } = split;
+
+  for (const p of r.people) {
+    const tr = document.createElement('tr');
+    const nameTd = document.createElement('td'); nameTd.textContent = p.name;
+    const oweTd = document.createElement('td'); oweTd.className = 'num'; oweTd.textContent = fmt(owe[p.id]);
+    tr.append(nameTd, oweTd);
+    summaryEl.appendChild(tr);
+  }
+
+  if (unassignedTotal > 0) {
+    const tr = document.createElement('tr');
+    const nameTd = document.createElement('td');
+    nameTd.innerHTML = `<span class="hint">Unassigned</span>`;
+    const oweTd = document.createElement('td'); oweTd.className = 'num'; oweTd.style.color = 'var(--warn)';
+    oweTd.textContent = fmt(unassignedTotal);
+    tr.append(nameTd, oweTd);
+    summaryEl.appendChild(tr);
+  }
+
+  const foot = document.createElement('tr');
+  const fLabel = document.createElement('td');
+  fLabel.innerHTML = 'Total' + (declaredTotal != null ? ` <span class="pill">receipt: ${fmt(declaredTotal)}</span>` : '');
+  fLabel.style.fontWeight = '600';
+  const fVal = document.createElement('td'); fVal.className = 'num';
+  fVal.textContent = fmt(assignedTotal + unassignedTotal);
+  fVal.style.fontWeight = '600';
+  foot.append(fLabel, fVal);
+  summaryFoot.appendChild(foot);
+
+  const notes = [];
+  if (unpricedCount) notes.push(`${unpricedCount} item${unpricedCount > 1 ? 's' : ''} without a price excluded.`);
+  if (declaredTotal != null) {
+    const sum = assignedTotal + unassignedTotal;
+    const diff = +(declaredTotal - sum).toFixed(2);
+    if (Math.abs(diff) >= 0.01) notes.push(`Sum is ${fmt(sum)}, receipt total is ${fmt(declaredTotal)} (Δ ${fmt(diff)}).`);
+  }
+  summaryNote.textContent = notes.join(' ');
+}
+
+function renderPerPerson(split) {
+  const r = active();
+  perPersonEl.innerHTML = '';
+  if (!r.people.length) {
+    const hint = document.createElement('div'); hint.className = 'hint';
+    hint.textContent = 'Add people to see per-person receipts.';
+    perPersonEl.appendChild(hint);
+    return;
+  }
+  for (const p of r.people) {
+    const card = document.createElement('div');
+    card.className = 'receipt';
+
+    const h = document.createElement('h3');
+    const who = document.createElement('span'); who.className = 'who'; who.textContent = p.name;
+    const amt = document.createElement('span'); amt.className = 'amt'; amt.textContent = fmt(split.owe[p.id]);
+    h.append(who, amt);
+    card.appendChild(h);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta-line';
+    meta.textContent = `${r.name || 'Untitled'} · ${r.date || ''}`.trim();
+    card.appendChild(meta);
+
+    const lines = split.itemsByPerson[p.id] || [];
+    if (!lines.length) {
+      const empty = document.createElement('div'); empty.className = 'empty';
+      empty.textContent = 'Nothing assigned.';
+      card.appendChild(empty);
+    } else {
+      const tbl = document.createElement('table');
+      const tb = document.createElement('tbody');
+      for (const { item, share, splitN } of lines) {
+        const tr = document.createElement('tr');
+        const lbl = document.createElement('td'); lbl.textContent = item.label;
+        const sh = document.createElement('td'); sh.className = 'share';
+        sh.textContent = splitN > 1 ? `÷${splitN}` : '';
+        const at = document.createElement('td'); at.className = 'amt'; at.textContent = fmt(share);
+        tr.append(lbl, sh, at);
+        tb.appendChild(tr);
+      }
+      tbl.appendChild(tb);
+      card.appendChild(tbl);
+    }
+    perPersonEl.appendChild(card);
+  }
+
+  if (split.unassignedItems.length) {
+    const card = document.createElement('div');
+    card.className = 'receipt';
+    card.style.borderColor = 'var(--warn)';
+    const h = document.createElement('h3');
+    const who = document.createElement('span'); who.className = 'who'; who.textContent = 'Unassigned';
+    who.style.color = 'var(--warn)';
+    const amt = document.createElement('span'); amt.className = 'amt'; amt.style.color = 'var(--warn)';
+    amt.textContent = fmt(split.unassignedTotal);
+    h.append(who, amt);
+    card.appendChild(h);
+    const tbl = document.createElement('table');
+    const tb = document.createElement('tbody');
+    for (const it of split.unassignedItems) {
+      const tr = document.createElement('tr');
+      const lbl = document.createElement('td'); lbl.textContent = it.label;
+      const at = document.createElement('td'); at.className = 'amt'; at.textContent = fmt(it.price);
+      tr.append(lbl, at);
+      tb.appendChild(tr);
+    }
+    tbl.appendChild(tb);
+    card.appendChild(tbl);
+    perPersonEl.appendChild(card);
+  }
+}
+
+function render() {
+  if (!active()) return;
+  renderHeader();
+  renderItems();
+  renderPeople();
+  const split = computeSplit();
+  renderSummary(split);
+  renderPerPerson(split);
+}
+
+function toTSV() {
+  const r = active();
+  const lines = [`# ${r.name || ''}\t${r.date || ''}`, '#\tItem\tQuantity\tPrice\tAssigned'];
+  r.items.forEach((it, i) => {
+    const assigned = it.assigned
+      .map(id => r.people.find(p => p.id === id)?.name)
+      .filter(Boolean).join(', ');
+    lines.push(`${i + 1}\t${it.label}\t${it.qty ?? ''}\t${it.price ?? ''}\t${assigned}`);
+  });
+  return lines.join('\n');
+}
+
+function save() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); } catch {}
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (!d.receipts || !Object.keys(d.receipts).length) return false;
+    store.activeId = d.activeId;
+    store.receipts = d.receipts;
+    store.nextReceiptId = d.nextReceiptId || (Object.keys(d.receipts).length + 1);
+    if (!store.receipts[store.activeId]) {
+      store.activeId = Object.keys(store.receipts)[0];
+    }
+    // bump local id counters past anything stored
+    for (const r of Object.values(store.receipts)) {
+      for (const p of r.people) {
+        const n = parseInt(String(p.id).slice(1), 10);
+        if (Number.isFinite(n)) nextLocalPerson = Math.max(nextLocalPerson, n + 1);
+      }
+      for (const it of r.items) {
+        const n = parseInt(String(it.id).slice(1), 10);
+        if (Number.isFinite(n)) nextLocalItem = Math.max(nextLocalItem, n + 1);
+        if (!Array.isArray(it.assigned)) it.assigned = [...(it.assigned || [])];
+      }
+    }
+    return true;
+  } catch { return false; }
+}
+
+function switchTo(id) {
+  if (!store.receipts[id]) return;
+  store.activeId = id;
+  render(); save();
+}
+
+function createReceipt({ from = null, name, date, loadExample = false } = {}) {
+  let r;
+  if (from) {
+    r = newReceipt({
+      name: (from.name ? from.name + ' (copy)' : 'Untitled'),
+      date: from.date,
+      people: from.people.map(p => ({ ...p })),
+      items: from.items.map(it => ({ ...it, id: uid('item'), assigned: [...it.assigned] })),
+    });
+  } else {
+    r = newReceipt({ name: name ?? 'Untitled', date: date ?? new Date().toISOString().slice(0, 10) });
+    if (loadExample) r.items = parseTSV(EXAMPLE_TSV);
+  }
+  store.receipts[r.id] = r;
+  store.activeId = r.id;
+  render(); save();
+}
+
+function deleteCurrent() {
+  if (!confirm(`Delete receipt "${active().name}"?`)) return;
+  delete store.receipts[store.activeId];
+  const remaining = Object.keys(store.receipts);
+  if (!remaining.length) {
+    createReceipt({ name: 'Untitled' });
+  } else {
+    store.activeId = remaining[0];
+    render(); save();
+  }
+}
+
+// wire up
+$('#add-person').addEventListener('click', () => {
+  const i = $('#new-person');
+  addPerson(i.value); i.value = ''; i.focus();
+});
+$('#new-person').addEventListener('keydown', e => { if (e.key === 'Enter') $('#add-person').click(); });
+
+$('#add-row').addEventListener('click', () => {
+  active().items.push({ id: uid('item'), label: '', qty: 1, price: null, assigned: [], isTotal: false });
+  render(); save();
+});
+
+$('#load-tsv').addEventListener('click', () => loadTSVIntoActive($('#tsv').value));
+$('#load-example').addEventListener('click', () => { $('#tsv').value = EXAMPLE_TSV; loadTSVIntoActive(EXAMPLE_TSV); });
+$('#copy-tsv').addEventListener('click', async () => {
+  const t = toTSV();
+  try { await navigator.clipboard.writeText(t); }
+  catch { $('#tsv').value = t; }
+});
+$('#download-tsv').addEventListener('click', () => {
+  const r = active();
+  const safeName = (r.name || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'untitled';
+  const filename = `${r.date || 'undated'}_${safeName}.tsv`;
+  const blob = new Blob([toTSV()], { type: 'text/tab-separated-values' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+});
+
+picker.addEventListener('change', () => switchTo(picker.value));
+$('#receipt-new').addEventListener('click', () => createReceipt({ name: 'Untitled' }));
+$('#receipt-dup').addEventListener('click', () => createReceipt({ from: active() }));
+$('#receipt-del').addEventListener('click', deleteCurrent);
+
+nameInput.addEventListener('change', () => { active().name = nameInput.value; render(); save(); });
+dateInput.addEventListener('change', () => { active().date = dateInput.value; render(); save(); });
+
+if (!load()) {
+  createReceipt({ name: 'Pub', date: '2026-04-17', loadExample: true });
+} else {
+  render();
+}
+</script>
+</body>
+</html>
