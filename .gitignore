@@ -1,0 +1,8 @@
+# Saved receipts written by the server
+/data/*.tsv
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/

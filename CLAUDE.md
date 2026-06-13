@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running
 
-There is no build system, package manager, or test suite. The app is a single static file. To work on it, open `index.html` directly in a browser (or via any static file server). Reload to see changes.
+The app itself is a single static file: open `index.html` directly in a browser (or via any static file server) and reload to see changes. No build step.
+
+An optional Flask server (`server.py`) adds server-side saving. It serves `index.html` at `/` and accepts `POST /api/save` (`{name, date, tsv}`), writing the TSV to `data/<date>_<name>.tsv`. The static app works fully without it — only the "Save to server" button needs it. To run:
+
+```
+pip install -r requirements.txt
+python server.py    # http://127.0.0.1:5000
+```
+
+Saved `.tsv` files under `data/` are gitignored.
 
 ## Architecture
 
