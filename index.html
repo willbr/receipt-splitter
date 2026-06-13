@@ -74,10 +74,12 @@
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   tr.total td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: none; }
   tr.unpriced td.price input { color: var(--warn); }
+  tr.underassigned td.qty input { color: var(--warn); font-weight: 600; }
   .assignees { display: flex; flex-wrap: wrap; gap: 3px; }
   .chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 999px;
     border: 1px solid var(--line); background: var(--input-bg); font-size: 11px; cursor: pointer; user-select: none; }
   .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .person-row { display: flex; gap: 5px; align-items: center; margin-bottom: 4px; }
   .person-row input { flex: 1; }
   .summary-table td.num { font-weight: 600; }
@@ -120,8 +122,8 @@
         <tr>
           <th style="width:30px">#</th>
           <th>Item</th>
-          <th class="num" style="width:50px">Qty</th>
-          <th class="num" style="width:96px">Price (£)</th>
+          <th class="num" style="width:50px" title="Number of units. Highlighted if assigned to fewer people than the quantity.">Qty</th>
+          <th class="num" style="width:96px" title="Price for the whole line.">Price (£)</th>
           <th style="min-width:160px">Assigned to</th>
           <th style="width:20px"></th>
         </tr>
@@ -130,7 +132,7 @@
     </table>
     <div class="row" style="margin-top:6px">
       <button id="add-row">+ Add line</button>
-      <span class="hint">Blank-priced lines are highlighted and excluded from the split.</span>
+      <span class="hint">Blank-priced lines are highlighted and excluded. Qty turns orange when fewer people are assigned than the quantity.</span>
     </div>
   </section>
 
@@ -162,7 +164,15 @@
 
   <section class="full">
     <h2>Import / Export TSV</h2>
-    <details>
+    <details open>
+      <summary>LLM prompt — turn a receipt photo into TSV</summary>
+      <p class="hint" style="margin:4px 0 6px">Copy this prompt, paste it into an LLM (Claude, ChatGPT…) together with a photo of the receipt, then paste the reply into the box below and Load.</p>
+      <textarea id="llm-prompt" readonly style="min-height:150px"></textarea>
+      <div class="row" style="margin-top:6px">
+        <button id="copy-prompt" class="primary">Copy prompt</button>
+      </div>
+    </details>
+    <details open>
       <summary>Paste TSV (line / item / qty / price)</summary>
       <textarea id="tsv" placeholder="1&#9;Item&#9;Quantity&#9;Price&#10;2&#9;Earl Grey&#9;1&#9;3.45"></textarea>
       <div class="row" style="margin-top:6px">
@@ -195,6 +205,30 @@ const EXAMPLE_TSV = `1\tItem\tQuantity\tPrice
 17\tClementine Tart\t1\t7.25
 18\tMini Pud & Drink\t1\t7.50
 19\tTOTAL\t\t127.55`;
+
+const LLM_PROMPT = `Convert the attached receipt photo into a tab-separated (TSV) table.
+
+Output ONLY the table inside a code block — no commentary before or after. Separate every column with a single TAB character (U+0009), never spaces or pipes.
+
+Columns, left to right:
+  1. Line number (1, 2, 3, …)
+  2. Item name, exactly as printed
+  3. Quantity — the number of units bought (default 1)
+  4. Line price — the total for that whole line, in pounds, digits only (e.g. 12.00), no currency symbol — not the per-unit price
+
+Rules:
+  - Start with this header row: 1\tItem\tQuantity\tPrice
+  - One row per printed line item, in the order they appear.
+  - If a price is missing or unreadable, leave that cell empty.
+  - Do not invent items, discounts, or charges that aren't printed.
+  - End with a row whose item is TOTAL, an empty quantity, and the receipt's printed total as the price.
+
+Example (the gaps below are tab characters):
+1\tItem\tQuantity\tPrice
+2\tEarl Grey\t1\t3.45
+3\tSteak & Ale Pie\t1\t16.25
+4\tPint of Lager\t2\t11.00
+5\tTOTAL\t\t30.70`;
 
 const STORAGE_KEY = 'receipt-splitter-store-v2';
 
@@ -234,11 +268,20 @@ const picker = $('#receipt-picker');
 const nameInput = $('#meta-name');
 const dateInput = $('#meta-date');
 
+// If the text contains a ```-fenced code block (e.g. an LLM reply that wraps its
+// TSV in ```tsv … ```), use the contents of the first block and ignore any
+// surrounding prose. Otherwise return the text unchanged.
+function stripCodeFence(text) {
+  const m = text.match(/```[^\n]*\n([\s\S]*?)```/);
+  return m ? m[1] : text;
+}
+
 function parseTSV(text) {
-  const rows = text.replace(/\r/g, '').split('\n').map(l => l.split('\t'));
+  const rows = stripCodeFence(text).replace(/\r/g, '').split('\n').map(l => l.split('\t'));
   const items = [];
   for (const r of rows) {
     if (!r.length || r.every(c => !c || !c.trim())) continue;
+    if (r[0] && r[0].trim().startsWith('#')) continue;   // comment / metadata line
     const lower = r.map(c => (c || '').trim().toLowerCase());
     if (lower.includes('item') && (lower.includes('price') || lower.includes('qty') || lower.includes('quantity'))) continue;
 
@@ -267,8 +310,31 @@ function parseTSV(text) {
 }
 
 function loadTSVIntoActive(text) {
+  const content = stripCodeFence(text).trim();
+  if (!content) {
+    alert('Nothing to load — paste the rows into the box first.');
+    return;
+  }
   const items = parseTSV(text);
-  if (!items.length) { alert('No rows parsed.'); return; }
+  if (!items.length) {
+    const lines = content.split('\n').filter(l => l.trim());
+    if (!content.includes('\t')) {
+      alert(
+        "Couldn't parse: no tab characters found.\n\n" +
+        'Columns must be separated by TABs, but this looks space-separated — ' +
+        'the LLM probably used spaces instead of tabs. Re-copy the prompt above ' +
+        '(it asks for real tab characters) and regenerate, then paste again.'
+      );
+    } else {
+      alert(
+        `Couldn't parse: found ${lines.length} line${lines.length === 1 ? '' : 's'} ` +
+        'with tabs, but none had a usable item + price.\n\n' +
+        'Each row needs at least an item name and a price, separated by tabs ' +
+        '(e.g.  Earl Grey⇥1⇥3.45).'
+      );
+    }
+    return;
+  }
   active().items = items;
   render(); save();
 }
@@ -303,10 +369,48 @@ function toggleAssign(itemId, personId) {
   render(); save();
 }
 
+// Shortfall between an item's quantity and the number of people it's assigned to.
+// Returns 0 when fine; a positive number ("needs N more people") when under-assigned.
+// Only flags partially-assigned items (>=1 assignee) — fully unassigned items are
+// already surfaced separately in the summary.
+function assignShortfall(it, people) {
+  if (it.isTotal || it.price == null || !Number.isFinite(it.qty)) return 0;
+  const valid = it.assigned.filter(id => people.some(p => p.id === id)).length;
+  return valid >= 1 && valid < it.qty ? it.qty - valid : 0;
+}
+
+function makeChipButton(el, pressed, onActivate) {
+  el.setAttribute('role', 'button');
+  el.setAttribute('tabindex', '0');
+  el.setAttribute('aria-pressed', String(!!pressed));
+  el.addEventListener('click', onActivate);
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate(); }
+  });
+}
+
 function fmt(n) {
   if (n == null || !Number.isFinite(n)) return '';
   const sign = n < 0 ? '-' : '';
   return `${sign}£${Math.abs(n).toFixed(2)}`;
+}
+
+// Round each owed amount to whole pennies in place, distributing any leftover
+// pennies (from divisions that don't divide evenly) to the largest remainders,
+// so the rounded amounts sum exactly to the rounded assigned total.
+function reconcilePennies(owe) {
+  const ids = Object.keys(owe);
+  if (!ids.length) return;
+  const exact = ids.map(id => owe[id] * 100);
+  const floored = exact.map(c => Math.floor(c));
+  const targetTotal = Math.round(exact.reduce((a, b) => a + b, 0));
+  let leftover = targetTotal - floored.reduce((a, b) => a + b, 0);
+  const order = ids
+    .map((id, i) => ({ i, frac: exact[i] - floored[i] }))
+    .sort((a, b) => b.frac - a.frac);
+  const cents = floored.slice();
+  for (let k = 0; k < leftover && order.length; k++) cents[order[k % order.length].i]++;
+  ids.forEach((id, i) => { owe[id] = cents[i] / 100; });
 }
 
 function computeSplit() {
@@ -329,8 +433,11 @@ function computeSplit() {
     assignedTotal += it.price;
   }
 
+  reconcilePennies(owe);
+
+  const underAssignedCount = r.items.filter(it => assignShortfall(it, r.people) > 0).length;
   const declaredTotal = r.items.find(i => i.isTotal)?.price ?? null;
-  return { owe, itemsByPerson, assignedTotal, unassignedTotal, unassignedItems, unpricedCount, declaredTotal };
+  return { owe, itemsByPerson, assignedTotal, unassignedTotal, unassignedItems, unpricedCount, underAssignedCount, declaredTotal };
 }
 
 function renderHeader() {
@@ -356,6 +463,8 @@ function renderItems() {
     const tr = document.createElement('tr');
     if (it.isTotal) tr.classList.add('total');
     if (!it.isTotal && it.price == null) tr.classList.add('unpriced');
+    const shortfall = assignShortfall(it, r.people);
+    if (shortfall) tr.classList.add('underassigned');
 
     const idxTd = document.createElement('td');
     idxTd.textContent = idx + 1;
@@ -373,13 +482,14 @@ function renderItems() {
     labelTd.appendChild(labelInput);
 
     const qtyTd = document.createElement('td');
-    qtyTd.className = 'num';
+    qtyTd.className = 'num qty';
     if (!it.isTotal) {
       const qi = document.createElement('input');
       qi.type = 'number'; qi.step = 'any'; qi.min = '0';
       qi.value = it.qty ?? '';
       qi.style.width = '46px'; qi.style.textAlign = 'right';
-      qi.addEventListener('change', () => { const v = parseFloat(qi.value); it.qty = Number.isFinite(v) ? v : null; save(); });
+      if (shortfall) qi.title = `Assigned to ${it.qty - shortfall} of ${it.qty} — needs ${shortfall} more`;
+      qi.addEventListener('change', () => { const v = parseFloat(qi.value); it.qty = Number.isFinite(v) ? v : null; render(); save(); });
       qtyTd.appendChild(qi);
     }
 
@@ -410,14 +520,14 @@ function renderItems() {
           const chip = document.createElement('span');
           chip.className = 'chip' + (it.assigned.includes(p.id) ? ' on' : '');
           chip.textContent = p.name;
-          chip.addEventListener('click', () => toggleAssign(it.id, p.id));
+          makeChipButton(chip, it.assigned.includes(p.id), () => toggleAssign(it.id, p.id));
           wrap.appendChild(chip);
         }
         const all = document.createElement('span');
         all.className = 'chip';
         all.title = 'Assign to everyone';
         all.textContent = 'all';
-        all.addEventListener('click', () => {
+        makeChipButton(all, r.people.every(p => it.assigned.includes(p.id)), () => {
           const everyone = r.people.every(p => it.assigned.includes(p.id));
           it.assigned = everyone ? [] : r.people.map(p => p.id);
           render(); save();
@@ -473,7 +583,7 @@ function renderSummary(split) {
   const r = active();
   summaryEl.innerHTML = '';
   summaryFoot.innerHTML = '';
-  const { owe, assignedTotal, unassignedTotal, unpricedCount, declaredTotal } = split;
+  const { owe, assignedTotal, unassignedTotal, unpricedCount, underAssignedCount, declaredTotal } = split;
 
   for (const p of r.people) {
     const tr = document.createElement('tr');
@@ -505,6 +615,7 @@ function renderSummary(split) {
 
   const notes = [];
   if (unpricedCount) notes.push(`${unpricedCount} item${unpricedCount > 1 ? 's' : ''} without a price excluded.`);
+  if (underAssignedCount) notes.push(`${underAssignedCount} item${underAssignedCount > 1 ? 's' : ''} assigned to fewer people than their quantity.`);
   if (declaredTotal != null) {
     const sum = assignedTotal + unassignedTotal;
     const diff = +(declaredTotal - sum).toFixed(2);
@@ -625,6 +736,10 @@ function load() {
       store.activeId = Object.keys(store.receipts)[0];
     }
     // bump local id counters past anything stored
+    for (const id of Object.keys(store.receipts)) {
+      const n = parseInt(String(id).slice(1), 10);
+      if (Number.isFinite(n)) store.nextReceiptId = Math.max(store.nextReceiptId, n + 1);
+    }
     for (const r of Object.values(store.receipts)) {
       for (const p of r.people) {
         const n = parseInt(String(p.id).slice(1), 10);
@@ -686,6 +801,16 @@ $('#new-person').addEventListener('keydown', e => { if (e.key === 'Enter') $('#a
 $('#add-row').addEventListener('click', () => {
   active().items.push({ id: uid('item'), label: '', qty: 1, price: null, assigned: [], isTotal: false });
   render(); save();
+});
+
+$('#llm-prompt').value = LLM_PROMPT;
+$('#copy-prompt').addEventListener('click', async e => {
+  const btn = e.currentTarget;
+  try { await navigator.clipboard.writeText(LLM_PROMPT); }
+  catch { $('#llm-prompt').select(); document.execCommand && document.execCommand('copy'); }
+  const prev = btn.textContent;
+  btn.textContent = 'Copied ✓';
+  setTimeout(() => { btn.textContent = prev; }, 1200);
 });
 
 $('#load-tsv').addEventListener('click', () => loadTSVIntoActive($('#tsv').value));
