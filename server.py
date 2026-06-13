@@ -1,12 +1,16 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.9"
+# dependencies = ["flask>=3.0"]
+# ///
 """Minimal Flask server for Receipt Splitter.
 
 Serves the static app and saves receipts as TSV files under ``data/``.
 
-    pip install -r requirements.txt
-    python server.py
+    uv run server.py
 
-Then open http://127.0.0.1:5000 and use the "Save to server" button.
+Then open http://127.0.0.1:5001 — the app autosaves here on every change.
+(Port 5001 because macOS Control Center / AirPlay Receiver occupies 5000.)
 """
 import os
 import re
@@ -58,4 +62,4 @@ def save():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5001, debug=True)

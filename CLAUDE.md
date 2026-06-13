@@ -6,14 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The app itself is a single static file: open `index.html` directly in a browser (or via any static file server) and reload to see changes. No build step.
 
-An optional Flask server (`server.py`) adds server-side saving. It serves `index.html` at `/` and accepts `POST /api/save` (`{name, date, tsv}`), writing the TSV to `data/<date>_<name>.tsv`. The static app works fully without it — only the "Save to server" button needs it. To run:
+An optional Flask server (`server.py`) adds server-side saving. It serves `index.html` at `/` and accepts `POST /api/save` (`{name, date, tsv}`), writing the TSV to `data/<date>_<name>.tsv`. The static app works fully without it — server saving is a progressive enhancement. Dependencies are declared inline (PEP 723), so run it with uv — no venv to manage:
 
 ```
-pip install -r requirements.txt
-python server.py    # http://127.0.0.1:5000
+uv run server.py    # http://127.0.0.1:5001  (5000 is taken by macOS AirPlay)
 ```
 
-Saved `.tsv` files under `data/` are gitignored.
+When the page is served over http (i.e. via this server), the app **autosaves** to the server on every change (debounced); opened as a `file://` it just skips that silently. Saved `.tsv` files under `data/` are gitignored.
 
 ## Architecture
 

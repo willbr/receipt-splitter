@@ -178,10 +178,9 @@
       <div class="row" style="margin-top:6px">
         <button id="load-tsv" class="primary">Load TSV into current receipt</button>
         <button id="download-tsv">Download TSV</button>
-        <button id="save-server">Save to server</button>
         <button id="copy-tsv">Copy as TSV</button>
         <button id="load-example" class="ghost">Load example</button>
-        <span class="hint" id="save-status"></span>
+        <span class="hint" id="autosave-status"></span>
       </div>
     </details>
   </section>
@@ -723,6 +722,39 @@ function toTSV() {
 
 function save() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); } catch {}
+  scheduleServerSave();
+}
+
+// Autosave the active receipt to the Flask server, debounced so a burst of edits
+// only triggers one write. Only runs when the page is served over http(s) — opened
+// as a file:// there is no server, so we skip it silently.
+const SERVER_SAVE_ENABLED = location.protocol === 'http:' || location.protocol === 'https:';
+let serverSaveTimer = null;
+function scheduleServerSave() {
+  if (!SERVER_SAVE_ENABLED) return;
+  clearTimeout(serverSaveTimer);
+  serverSaveTimer = setTimeout(serverSave, 800);
+}
+async function serverSave() {
+  const status = $('#autosave-status');
+  const r = active();
+  if (!r) return;
+  status.textContent = 'Saving…';
+  status.style.color = 'var(--muted)';
+  try {
+    const res = await fetch('/api/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: r.name, date: r.date, tsv: toTSV() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    status.textContent = `Autosaved to data/${data.file}`;
+    status.style.color = 'var(--accent)';
+  } catch (err) {
+    status.textContent = `Autosave failed: ${err.message} — is the server running?`;
+    status.style.color = 'var(--warn)';
+  }
 }
 
 function load() {
@@ -822,31 +854,6 @@ $('#copy-tsv').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(t); }
   catch { $('#tsv').value = t; }
 });
-$('#save-server').addEventListener('click', async e => {
-  const btn = e.currentTarget;
-  const status = $('#save-status');
-  const r = active();
-  btn.disabled = true;
-  status.textContent = 'Saving…';
-  status.style.color = 'var(--muted)';
-  try {
-    const res = await fetch('/api/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: r.name, date: r.date, tsv: toTSV() }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    status.textContent = `Saved to data/${data.file}`;
-    status.style.color = 'var(--accent)';
-  } catch (err) {
-    status.textContent = `Save failed: ${err.message}. Is the server running? (python server.py)`;
-    status.style.color = 'var(--warn)';
-  } finally {
-    btn.disabled = false;
-  }
-});
-
 $('#download-tsv').addEventListener('click', () => {
   const r = active();
   const safeName = (r.name || 'untitled').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'untitled';

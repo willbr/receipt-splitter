@@ -1,6 +1,8 @@
 # Receipt Splitter
 
-A single-file HTML app for splitting receipts between people. No build step, no server — open `index.html` in a browser.
+A single-file HTML app for splitting receipts between people. No build step — open `index.html` in a browser. An optional Flask server adds autosaving to disk.
+
+![Receipt Splitter screenshot](docs/screenshot.png)
 
 ## Usage
 
@@ -25,6 +27,16 @@ Tab-separated, one item per line. The first column is an optional line number; a
 A row whose label starts with `TOTAL` is treated as the receipt total and used to flag mismatches against the computed sum. Items with a blank price are highlighted and excluded from the split.
 
 See `examples/2026-04-17_pub.tsv` for a full example.
+
+## Saving to a server (optional)
+
+The app works entirely client-side, but `server.py` adds server-side autosaving. Dependencies are declared inline (PEP 723), so [uv](https://docs.astral.sh/uv/) runs it with no setup:
+
+```
+uv run server.py    # http://127.0.0.1:5001  (5000 is taken by macOS AirPlay)
+```
+
+Open the app at that URL and every change is autosaved (debounced) to `data/<date>_<name>.tsv`. Opened directly as a `file://`, the app simply skips autosaving.
 
 ## Features
 
