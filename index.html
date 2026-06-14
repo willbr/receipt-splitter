@@ -109,6 +109,7 @@
   <button id="receipt-new">New</button>
   <button id="receipt-dup">Duplicate</button>
   <button id="receipt-del" class="ghost delete">Delete</button>
+  <button id="undo" title="Revert the last change (one step). Press again to redo it." hidden>↶ Undo</button>
   <span class="grow"></span>
   <label>Name<input type="text" id="meta-name" placeholder="e.g. Pub"></label>
   <label>Date<input type="date" id="meta-date"></label>
@@ -244,6 +245,12 @@ const store = {
   receipts: {},   // id -> Receipt
   nextReceiptId: 1,
 };
+
+// One-step undo: the serialized store as it was *before* the most recent save().
+// save() captures it from the previously-persisted value, so every mutation is
+// undoable with no per-handler bookkeeping. undo() swaps it back, which also makes
+// the undo itself reversible (press again to redo).
+let undoSnapshot = null;
 
 let nextLocalPerson = 1;
 let nextLocalItem = 1;
@@ -828,8 +835,34 @@ function toTSV() {
 }
 
 function save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); } catch {}
+  try {
+    const prev = localStorage.getItem(STORAGE_KEY);
+    if (prev !== null) undoSnapshot = prev;   // state before this change
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  } catch {}
   scheduleServerSave();
+  updateUndoButton();
+}
+
+function updateUndoButton() {
+  const btn = $('#undo');
+  if (btn) btn.hidden = undoSnapshot === null;
+}
+
+// Restore the store from a serialized snapshot (shares load()'s validation of activeId).
+function applyStoreJSON(json) {
+  const d = JSON.parse(json);
+  store.receipts = d.receipts || {};
+  store.nextReceiptId = d.nextReceiptId || (Object.keys(store.receipts).length + 1);
+  store.activeId = store.receipts[d.activeId] ? d.activeId : Object.keys(store.receipts)[0];
+}
+
+function undo() {
+  if (undoSnapshot === null) return;
+  try { applyStoreJSON(undoSnapshot); } catch { return; }
+  // save() captures the just-replaced (pre-undo) state as the new snapshot, so this
+  // step is itself reversible, and persists the restored state.
+  render(); save();
 }
 
 // Autosave the active receipt to the Flask server, debounced so a burst of edits
@@ -979,6 +1012,7 @@ picker.addEventListener('change', () => switchTo(picker.value));
 $('#receipt-new').addEventListener('click', () => createReceipt({ name: 'Untitled' }));
 $('#receipt-dup').addEventListener('click', () => createReceipt({ from: active() }));
 $('#receipt-del').addEventListener('click', deleteCurrent);
+$('#undo').addEventListener('click', undo);
 
 nameInput.addEventListener('change', () => { active().name = nameInput.value; render(); save(); });
 dateInput.addEventListener('change', () => { active().date = dateInput.value; render(); save(); });
@@ -988,6 +1022,7 @@ if (!load()) {
 } else {
   render();
 }
+updateUndoButton();
 </script>
 </body>
 </html>
