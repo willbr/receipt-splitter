@@ -124,6 +124,7 @@
           <th>Item</th>
           <th class="num" style="width:50px" title="Number of units. Highlighted if assigned to fewer people than the quantity.">Qty</th>
           <th class="num" style="width:96px" title="Price for the whole line.">Price (£)</th>
+          <th class="num" style="width:96px" title="Discount for the whole line, subtracted from the price.">Disc. (£)</th>
           <th style="min-width:160px">Assigned to</th>
           <th style="width:20px"></th>
         </tr>
@@ -132,7 +133,7 @@
     </table>
     <div class="row" style="margin-top:6px">
       <button id="add-row">+ Add line</button>
-      <span class="hint">Blank-priced lines are highlighted and excluded. Qty turns orange when fewer people are assigned than the quantity.</span>
+      <span class="hint">Blank-priced lines are highlighted and excluded. Qty turns orange when fewer people are assigned than the quantity. The discount is subtracted from the price before splitting.</span>
     </div>
   </section>
 
@@ -286,8 +287,10 @@ function parseTSV(text) {
     const lower = r.map(c => (c || '').trim().toLowerCase());
     if (lower.includes('item') && (lower.includes('price') || lower.includes('qty') || lower.includes('quantity'))) continue;
 
-    let line, label, qty, price;
-    if (r.length >= 4) [line, label, qty, price] = r;
+    // Column 5 (when present) is the optional discount; column 6 is the assigned
+    // names, which import ignores. Rows from the LLM prompt have only 4 columns.
+    let line, label, qty, price, discount;
+    if (r.length >= 4) [line, label, qty, price, discount] = r;
     else if (r.length === 3) [label, qty, price] = r;
     else if (r.length === 2) [label, price] = r;
     else continue;
@@ -298,11 +301,13 @@ function parseTSV(text) {
     const isTotal = /^total\b/i.test(label);
     const qtyNum = parseFloat((qty || '').toString().trim());
     const priceNum = parseFloat((price || '').toString().replace(/[^\d.\-]/g, ''));
+    const discNum = parseFloat((discount || '').toString().replace(/[^\d.\-]/g, ''));
     items.push({
       id: uid('item'),
       label,
       qty: Number.isFinite(qtyNum) ? qtyNum : (isTotal ? null : 1),
       price: Number.isFinite(priceNum) ? priceNum : null,
+      discount: Number.isFinite(discNum) && discNum !== 0 ? discNum : null,
       assigned: [],
       isTotal,
     });
@@ -396,6 +401,13 @@ function fmt(n) {
   return `${sign}£${Math.abs(n).toFixed(2)}`;
 }
 
+// Effective line price after subtracting any per-line discount. null if unpriced;
+// the discount only applies when there's a price to subtract it from.
+function netPrice(it) {
+  if (it.price == null) return null;
+  return it.price - (it.discount || 0);
+}
+
 // Round each owed amount to whole pennies in place, distributing any leftover
 // pennies (from divisions that don't divide evenly) to the largest remainders,
 // so the rounded amounts sum exactly to the rounded assigned total.
@@ -424,14 +436,15 @@ function computeSplit() {
   for (const it of r.items) {
     if (it.isTotal) continue;
     if (it.price == null) { unpricedCount++; continue; }
+    const net = netPrice(it);
     const assignees = it.assigned.filter(id => owe[id] != null);
-    if (!assignees.length) { unassignedTotal += it.price; unassignedItems.push(it); continue; }
-    const share = it.price / assignees.length;
+    if (!assignees.length) { unassignedTotal += net; unassignedItems.push(it); continue; }
+    const share = net / assignees.length;
     for (const id of assignees) {
       owe[id] += share;
       itemsByPerson[id].push({ item: it, share, splitN: assignees.length });
     }
-    assignedTotal += it.price;
+    assignedTotal += net;
   }
 
   reconcilePennies(owe);
@@ -507,6 +520,22 @@ function renderItems() {
     });
     priceTd.appendChild(pi);
 
+    const discTd = document.createElement('td');
+    discTd.className = 'num price';
+    if (!it.isTotal) {
+      const di = document.createElement('input');
+      di.type = 'number'; di.step = '0.01'; di.min = '0';
+      di.value = it.discount ? it.discount : '';
+      di.placeholder = '—';
+      di.style.width = '84px'; di.style.textAlign = 'right';
+      di.addEventListener('change', () => {
+        const v = parseFloat(di.value);
+        it.discount = Number.isFinite(v) && v !== 0 ? v : null;   // blank / 0 / invalid → no discount
+        save(); render();
+      });
+      discTd.appendChild(di);
+    }
+
     const assignTd = document.createElement('td');
     if (!it.isTotal) {
       const wrap = document.createElement('div');
@@ -549,7 +578,7 @@ function renderItems() {
     });
     delTd.appendChild(del);
 
-    tr.append(idxTd, labelTd, qtyTd, priceTd, assignTd, delTd);
+    tr.append(idxTd, labelTd, qtyTd, priceTd, discTd, assignTd, delTd);
     itemsBody.appendChild(tr);
   });
 }
@@ -688,7 +717,7 @@ function renderPerPerson(split) {
     for (const it of split.unassignedItems) {
       const tr = document.createElement('tr');
       const lbl = document.createElement('td'); lbl.textContent = it.label;
-      const at = document.createElement('td'); at.className = 'amt'; at.textContent = fmt(it.price);
+      const at = document.createElement('td'); at.className = 'amt'; at.textContent = fmt(netPrice(it));
       tr.append(lbl, at);
       tb.appendChild(tr);
     }
@@ -710,12 +739,12 @@ function render() {
 
 function toTSV() {
   const r = active();
-  const lines = [`# ${r.name || ''}\t${r.date || ''}`, '#\tItem\tQuantity\tPrice\tAssigned'];
+  const lines = [`# ${r.name || ''}\t${r.date || ''}`, '#\tItem\tQuantity\tPrice\tDiscount\tAssigned'];
   r.items.forEach((it, i) => {
     const assigned = it.assigned
       .map(id => r.people.find(p => p.id === id)?.name)
       .filter(Boolean).join(', ');
-    lines.push(`${i + 1}\t${it.label}\t${it.qty ?? ''}\t${it.price ?? ''}\t${assigned}`);
+    lines.push(`${i + 1}\t${it.label}\t${it.qty ?? ''}\t${it.price ?? ''}\t${it.discount ?? ''}\t${assigned}`);
   });
   return lines.join('\n');
 }
@@ -833,7 +862,7 @@ $('#add-person').addEventListener('click', () => {
 $('#new-person').addEventListener('keydown', e => { if (e.key === 'Enter') $('#add-person').click(); });
 
 $('#add-row').addEventListener('click', () => {
-  active().items.push({ id: uid('item'), label: '', qty: 1, price: null, assigned: [], isTotal: false });
+  active().items.push({ id: uid('item'), label: '', qty: 1, price: null, discount: null, assigned: [], isTotal: false });
   render(); save();
 });
 

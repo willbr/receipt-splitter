@@ -20,7 +20,7 @@ The entire app is in `index.html` — HTML, CSS, and vanilla JS in one file. The
 
 Key things to know before editing:
 
-- **Single source of truth: `store`.** `store = { activeId, receipts: { [id]: Receipt }, nextReceiptId }`. Each `Receipt` has `{ id, name, date, people: [{id, name}], items: [{id, label, qty, price, assigned: [personId], isTotal}] }`. `active()` returns the currently selected receipt; almost all mutations go through it.
+- **Single source of truth: `store`.** `store = { activeId, receipts: { [id]: Receipt }, nextReceiptId }`. Each `Receipt` has `{ id, name, date, people: [{id, name}], items: [{id, label, qty, price, discount, assigned: [personId], isTotal}] }`. `discount` is an optional per-line amount (number or null) subtracted from `price`; `netPrice(it)` returns the effective price (`price - (discount||0)`, or null when unpriced) and is what `computeSplit()` splits on. `active()` returns the currently selected receipt; almost all mutations go through it.
 - **Persistence is automatic.** Every state-changing action calls `save()` which writes the whole `store` to `localStorage` under `STORAGE_KEY` (`receipt-splitter-store-v2`). On boot, `load()` rehydrates it; if storage is empty or the schema doesn't match, an example receipt is seeded. Bumping the schema means changing the key (the v1 → v2 jump is why old data is silently ignored).
 - **Render is full-redraw.** There's no diffing — `render()` rebuilds the items table, people list, summary, per-person cards, and header from scratch on every change. Keep this in mind when adding features: read from `active()`, push the change, call `render(); save();`.
 - **`computeSplit()` is the single calculator.** It returns `{ owe, itemsByPerson, assignedTotal, unassignedTotal, unassignedItems, unpricedCount, declaredTotal }`. Both the summary and per-person renderers consume the same result — don't recompute.
@@ -30,4 +30,4 @@ Key things to know before editing:
 
 ## TSV format
 
-Tab-separated, columns are `[lineNo, label, qty, price]`. The parser is tolerant of 2- to 4-column rows and skips a header row containing `Item` plus `Price`/`Qty`/`Quantity`. See `examples/2026-04-17_pub.tsv`. Export filename convention is `<date>_<name>.tsv`.
+Tab-separated, columns are `[lineNo, label, qty, price, discount, assigned]`. The parser is tolerant of 2- to 6-column rows: with ≥4 columns it reads `lineNo,label,qty,price`, and column 5 (when present) is the optional discount; column 6 (assigned names) is exported for humans but ignored on import. It skips a header row containing `Item` plus `Price`/`Qty`/`Quantity`. The LLM import prompt only emits the first 4 columns. See `examples/2026-04-17_pub.tsv`. Export filename convention is `<date>_<name>.tsv`.
