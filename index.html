@@ -177,7 +177,8 @@
       <summary>Paste TSV (line / item / qty / price)</summary>
       <textarea id="tsv" placeholder="1&#9;Item&#9;Quantity&#9;Price&#10;2&#9;Earl Grey&#9;1&#9;3.45"></textarea>
       <div class="row" style="margin-top:6px">
-        <button id="load-tsv" class="primary">Load TSV into current receipt</button>
+        <button id="load-tsv-new" class="primary">Load as new receipt</button>
+        <button id="replace-tsv" title="Overwrite the items in the receipt you're currently viewing" style="border-color:var(--warn);color:var(--warn)">Replace current items</button>
         <button id="download-tsv">Download TSV</button>
         <button id="copy-tsv">Copy as TSV</button>
         <button id="load-example" class="ghost">Load example</button>
@@ -188,7 +189,8 @@
 </main>
 
 <script>
-const EXAMPLE_TSV = `1\tItem\tQuantity\tPrice
+const EXAMPLE_TSV = `# Pub\t2026-04-17
+1\tItem\tQuantity\tPrice
 2\tEarl Grey\t1\t3.45
 3\tWith Oat Milk\t1\t0.00
 4\tRekord Strawberry\t1\t6.80
@@ -220,13 +222,15 @@ Columns, left to right:
   5. Discount — any per-line discount printed for that item, in pounds, digits only; leave empty if there is none
 
 Rules:
-  - Start with this header row: 1\tItem\tQuantity\tPrice\tDiscount
+  - Start with a metadata line: # ShopName\tYYYY-MM-DD — the shop/merchant name and the receipt date. Leave either side blank if it isn't printed, but keep the leading "# ".
+  - Then this header row: 1\tItem\tQuantity\tPrice\tDiscount
   - One row per printed line item, in the order they appear.
   - If a price is missing or unreadable, leave that cell empty.
   - Only fill the Discount cell from a discount actually printed against that line; otherwise leave it empty. Do not invent items, discounts, or charges that aren't printed.
   - End with a row whose item is TOTAL, an empty quantity, and the receipt's printed total as the price.
 
 Example (the gaps below are tab characters):
+# The Crown\t2026-04-17
 1\tItem\tQuantity\tPrice\tDiscount
 2\tEarl Grey\t1\t3.45\t
 3\tSteak & Ale Pie\t1\t16.25\t2.00
@@ -325,11 +329,28 @@ function parseTSV(text) {
   return items;
 }
 
-function loadTSVIntoActive(text) {
+// Pull a "# name<tab>date" metadata line (what Download TSV writes, and what the LLM
+// prompt asks for) out of a pasted TSV, so a freshly-imported receipt can be named.
+// Returns { name, date } (either may be ''), or null if there's no such line.
+function parseTSVMeta(text) {
+  for (const line of stripCodeFence(text).replace(/\r/g, '').split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('#')) continue;
+    const rest = t.replace(/^#\s*/, '');
+    if (!rest) continue;
+    const [name, date] = rest.split('\t').map(s => (s || '').trim());
+    if (!name || /\b(item|price|qty|quantity|discount)\b/i.test(name)) continue;  // column header, not metadata
+    return { name, date: /^\d{4}-\d{2}-\d{2}$/.test(date || '') ? date : '' };
+  }
+  return null;
+}
+
+// Parse the textarea's TSV, or alert with a specific diagnostic and return null.
+function parseTSVOrWarn(text) {
   const content = stripCodeFence(text).trim();
   if (!content) {
     alert('Nothing to load — paste the rows into the box first.');
-    return;
+    return null;
   }
   const items = parseTSV(text);
   if (!items.length) {
@@ -349,9 +370,30 @@ function loadTSVIntoActive(text) {
         '(e.g.  Earl Grey⇥1⇥3.45).'
       );
     }
-    return;
+    return null;
   }
-  active().items = items;
+  return items;
+}
+
+// Import into a brand-new receipt — never touches the one you're viewing. Names the
+// new receipt from a "# name<tab>date" metadata line if the paste has one.
+function loadTSVAsNew(text) {
+  const items = parseTSVOrWarn(text);
+  if (!items) return;
+  const meta = parseTSVMeta(text) || {};
+  createReceipt({ name: meta.name || undefined, date: meta.date || undefined, items });
+}
+
+// Overwrite the current receipt's items, guarded by a confirm when it isn't empty.
+function replaceCurrentWithTSV(text) {
+  const items = parseTSVOrWarn(text);
+  if (!items) return;
+  const cur = active();
+  const hasContent = cur.items.some(it => (it.label || '').trim() || it.price != null);
+  if (hasContent && !confirm(
+    `Replace all ${cur.items.length} item${cur.items.length === 1 ? '' : 's'} in "${cur.name || 'Untitled'}"? This can't be undone.`
+  )) return;
+  cur.items = items;
   render(); save();
 }
 
@@ -860,7 +902,7 @@ function switchTo(id) {
   render(); save();
 }
 
-function createReceipt({ from = null, name, date, loadExample = false } = {}) {
+function createReceipt({ from = null, name, date, items = null, loadExample = false } = {}) {
   let r;
   if (from) {
     r = newReceipt({
@@ -871,7 +913,8 @@ function createReceipt({ from = null, name, date, loadExample = false } = {}) {
     });
   } else {
     r = newReceipt({ name: name ?? 'Untitled', date: date ?? new Date().toISOString().slice(0, 10) });
-    if (loadExample) r.items = parseTSV(EXAMPLE_TSV);
+    if (items) r.items = items;
+    else if (loadExample) r.items = parseTSV(EXAMPLE_TSV);
   }
   store.receipts[r.id] = r;
   store.activeId = r.id;
@@ -912,8 +955,9 @@ $('#copy-prompt').addEventListener('click', async e => {
   setTimeout(() => { btn.textContent = prev; }, 1200);
 });
 
-$('#load-tsv').addEventListener('click', () => loadTSVIntoActive($('#tsv').value));
-$('#load-example').addEventListener('click', () => { $('#tsv').value = EXAMPLE_TSV; loadTSVIntoActive(EXAMPLE_TSV); });
+$('#load-tsv-new').addEventListener('click', () => loadTSVAsNew($('#tsv').value));
+$('#replace-tsv').addEventListener('click', () => replaceCurrentWithTSV($('#tsv').value));
+$('#load-example').addEventListener('click', () => { $('#tsv').value = EXAMPLE_TSV; loadTSVAsNew(EXAMPLE_TSV); });
 $('#copy-tsv').addEventListener('click', async () => {
   const t = toTSV();
   try { await navigator.clipboard.writeText(t); }
