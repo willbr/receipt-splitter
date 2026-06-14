@@ -289,7 +289,8 @@ function parseTSV(text) {
     if (lower.includes('item') && (lower.includes('price') || lower.includes('qty') || lower.includes('quantity'))) continue;
 
     // Column 5 (when present) is the optional discount; column 6 is the assigned
-    // names, which import ignores. Rows from the LLM prompt have only 4 columns.
+    // names, which import ignores. The LLM prompt emits the first 5 columns; older
+    // pastes with only 4 still parse (discount stays empty).
     let line, label, qty, price, discount;
     if (r.length >= 4) [line, label, qty, price, discount] = r;
     else if (r.length === 3) [label, qty, price] = r;
