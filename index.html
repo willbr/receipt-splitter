@@ -217,20 +217,21 @@ Columns, left to right:
   2. Item name, exactly as printed
   3. Quantity — the number of units bought (default 1)
   4. Line price — the total for that whole line, in pounds, digits only (e.g. 12.00), no currency symbol — not the per-unit price
+  5. Discount — any per-line discount printed for that item, in pounds, digits only; leave empty if there is none
 
 Rules:
-  - Start with this header row: 1\tItem\tQuantity\tPrice
+  - Start with this header row: 1\tItem\tQuantity\tPrice\tDiscount
   - One row per printed line item, in the order they appear.
   - If a price is missing or unreadable, leave that cell empty.
-  - Do not invent items, discounts, or charges that aren't printed.
+  - Only fill the Discount cell from a discount actually printed against that line; otherwise leave it empty. Do not invent items, discounts, or charges that aren't printed.
   - End with a row whose item is TOTAL, an empty quantity, and the receipt's printed total as the price.
 
 Example (the gaps below are tab characters):
-1\tItem\tQuantity\tPrice
-2\tEarl Grey\t1\t3.45
-3\tSteak & Ale Pie\t1\t16.25
-4\tPint of Lager\t2\t11.00
-5\tTOTAL\t\t30.70`;
+1\tItem\tQuantity\tPrice\tDiscount
+2\tEarl Grey\t1\t3.45\t
+3\tSteak & Ale Pie\t1\t16.25\t2.00
+4\tPint of Lager\t2\t11.00\t
+5\tTOTAL\t\t28.70\t`;
 
 const STORAGE_KEY = 'receipt-splitter-store-v2';
 
