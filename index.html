@@ -441,11 +441,14 @@ function computeSplit() {
   const owe = Object.fromEntries(r.people.map(p => [p.id, 0]));
   const itemsByPerson = Object.fromEntries(r.people.map(p => [p.id, []]));
   let assignedTotal = 0, unassignedTotal = 0, unpricedCount = 0;
+  let grossTotal = 0, discountTotal = 0;
   const unassignedItems = [];
 
   for (const it of r.items) {
     if (it.isTotal) continue;
     if (it.price == null) { unpricedCount++; continue; }
+    grossTotal += it.price;
+    discountTotal += (it.discount || 0);
     const net = netPrice(it);
     const assignees = it.assigned.filter(id => owe[id] != null);
     if (!assignees.length) { unassignedTotal += net; unassignedItems.push(it); continue; }
@@ -461,7 +464,7 @@ function computeSplit() {
 
   const underAssignedCount = r.items.filter(it => assignShortfall(it, r.people) > 0).length;
   const declaredTotal = r.items.find(i => i.isTotal)?.price ?? null;
-  return { owe, itemsByPerson, assignedTotal, unassignedTotal, unassignedItems, unpricedCount, underAssignedCount, declaredTotal };
+  return { owe, itemsByPerson, assignedTotal, unassignedTotal, unassignedItems, unpricedCount, underAssignedCount, declaredTotal, grossTotal, discountTotal };
 }
 
 function renderHeader() {
@@ -624,7 +627,7 @@ function renderSummary(split) {
   const r = active();
   summaryEl.innerHTML = '';
   summaryFoot.innerHTML = '';
-  const { owe, assignedTotal, unassignedTotal, unpricedCount, underAssignedCount, declaredTotal } = split;
+  const { owe, assignedTotal, unassignedTotal, unpricedCount, underAssignedCount, declaredTotal, grossTotal, discountTotal } = split;
 
   for (const p of r.people) {
     const tr = document.createElement('tr');
@@ -642,6 +645,28 @@ function renderSummary(split) {
     oweTd.textContent = fmt(unassignedTotal);
     tr.append(nameTd, oweTd);
     summaryEl.appendChild(tr);
+  }
+
+  // When anything was discounted, show the gross total and the total discount so the
+  // net Total below them is explained.
+  if (discountTotal > 0) {
+    const subRow = document.createElement('tr');
+    const subLabel = document.createElement('td');
+    subLabel.innerHTML = `<span class="hint">Before discount</span>`;
+    const subVal = document.createElement('td'); subVal.className = 'num';
+    subVal.style.color = 'var(--muted)';
+    subVal.textContent = fmt(grossTotal);
+    subRow.append(subLabel, subVal);
+    summaryFoot.appendChild(subRow);
+
+    const discRow = document.createElement('tr');
+    const discLabel = document.createElement('td');
+    discLabel.innerHTML = `<span class="hint">Discount</span>`;
+    const discVal = document.createElement('td'); discVal.className = 'num';
+    discVal.style.color = 'var(--muted)';
+    discVal.textContent = `−${fmt(discountTotal)}`;
+    discRow.append(discLabel, discVal);
+    summaryFoot.appendChild(discRow);
   }
 
   const foot = document.createElement('tr');
