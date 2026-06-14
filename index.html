@@ -309,7 +309,9 @@ function parseTSV(text) {
       label,
       qty: Number.isFinite(qtyNum) ? qtyNum : (isTotal ? null : 1),
       price: Number.isFinite(priceNum) ? priceNum : null,
-      discount: Number.isFinite(discNum) && discNum !== 0 ? discNum : null,
+      // A discount always reduces the price; receipts print it either way (1.50 or
+      // -1.50), so store the magnitude and let netPrice subtract it.
+      discount: Number.isFinite(discNum) && discNum !== 0 ? Math.abs(discNum) : null,
       assigned: [],
       isTotal,
     });
@@ -532,7 +534,8 @@ function renderItems() {
       di.style.width = '84px'; di.style.textAlign = 'right';
       di.addEventListener('change', () => {
         const v = parseFloat(di.value);
-        it.discount = Number.isFinite(v) && v !== 0 ? v : null;   // blank / 0 / invalid → no discount
+        // Magnitude always: typed as 1.50 or -1.50, a discount reduces the price.
+        it.discount = Number.isFinite(v) && v !== 0 ? Math.abs(v) : null;   // blank / 0 / invalid → no discount
         save(); render();
       });
       discTd.appendChild(di);
