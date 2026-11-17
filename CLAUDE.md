@@ -12,6 +12,8 @@ An optional Flask server (`server.py`) adds server-side saving. It serves `index
 uv run server.py    # http://127.0.0.1:5001  (5000 is taken by macOS AirPlay)
 ```
 
+On Windows, `.\run.ps1` does the same from any directory.
+
 When the page is served over http (i.e. via this server), the app **autosaves** to the server on every change (debounced); opened as a `file://` it just skips that silently. Saved `.tsv` files under `data/` are gitignored.
 
 ## Architecture
