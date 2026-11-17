@@ -75,6 +75,7 @@
   tr.total td { font-weight: 600; border-top: 2px solid var(--ink); border-bottom: none; }
   tr.unpriced td.price input { color: var(--warn); }
   tr.underassigned td.qty input { color: var(--warn); font-weight: 600; }
+  button.split-qty { padding: 1px 4px; margin-right: 2px; font-size: 11px; }
   .assignees { display: flex; flex-wrap: wrap; gap: 3px; }
   .chip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; border-radius: 999px;
     border: 1px solid var(--line); background: var(--input-bg); font-size: 11px; cursor: pointer; user-select: none; }
@@ -134,7 +135,7 @@
     </table>
     <div class="row" style="margin-top:6px">
       <button id="add-row">+ Add line</button>
-      <span class="hint">Blank-priced lines are highlighted and excluded. Qty turns orange when fewer people are assigned than the quantity. The discount is subtracted from the price before splitting.</span>
+      <span class="hint">Blank-priced lines are highlighted and excluded. Qty turns orange when fewer people are assigned than the quantity; ⇵ splits a multi-qty line into single lines.The discount is subtracted from the price before splitting.</span>
     </div>
   </section>
 
@@ -434,6 +435,43 @@ function toggleAssign(itemId, personId) {
   render(); save();
 }
 
+// Divide an amount into n parts that are whole pennies and sum exactly to it,
+// e.g. 1.00 / 3 → [0.34, 0.33, 0.33]. null stays null for every part.
+function splitAmount(amount, n) {
+  if (amount == null) return Array(n).fill(null);
+  const cents = Math.round(amount * 100);
+  const base = Math.trunc(cents / n);
+  const rem = cents - base * n;                     // same sign as cents, |rem| < n
+  return Array.from({ length: n }, (_, i) => (base + (i < Math.abs(rem) ? Math.sign(rem) : 0)) / 100);
+}
+
+function canSplitQty(it) {
+  return !it.isTotal && Number.isInteger(it.qty) && it.qty > 1 && it.qty <= 100;
+}
+
+// Replace a qty-N line with N qty-1 lines, dividing the (line-total) price and
+// discount between them. If exactly N people were assigned, each new line goes
+// to one of them; otherwise every line keeps the original assignment.
+function splitItemQty(itemId) {
+  const r = active();
+  const idx = r.items.findIndex(x => x.id === itemId);
+  const it = r.items[idx];
+  if (!it || !canSplitQty(it)) return;
+  const n = it.qty;
+  const prices = splitAmount(it.price, n);
+  const discounts = it.discount ? splitAmount(it.discount, n) : Array(n).fill(null);
+  const valid = it.assigned.filter(id => r.people.some(p => p.id === id));
+  const oneEach = valid.length === n;
+  const parts = Array.from({ length: n }, (_, i) => ({
+    id: uid('item'), label: it.label, qty: 1, price: prices[i],
+    discount: discounts[i] || null,
+    assigned: oneEach ? [valid[i]] : it.assigned.slice(),
+    isTotal: false,
+  }));
+  r.items.splice(idx, 1, ...parts);
+  render(); save();
+}
+
 // Shortfall between an item's quantity and the number of people it's assigned to.
 // Returns 0 when fine; a positive number ("needs N more people") when under-assigned.
 // Only flags partially-assigned items (>=1 assignee) — fully unassigned items are
@@ -566,6 +604,15 @@ function renderItems() {
       qi.style.width = '46px'; qi.style.textAlign = 'right';
       if (shortfall) qi.title = `Assigned to ${it.qty - shortfall} of ${it.qty} — needs ${shortfall} more`;
       qi.addEventListener('change', () => { const v = parseFloat(qi.value); it.qty = Number.isFinite(v) ? v : null; render(); save(); });
+      if (canSplitQty(it)) {
+        const sb = document.createElement('button');
+        sb.className = 'ghost split-qty';
+        sb.textContent = '⇵';
+        sb.title = `Split into ${it.qty} separate lines`;
+        sb.setAttribute('aria-label', sb.title);
+        sb.addEventListener('click', () => splitItemQty(it.id));
+        qtyTd.appendChild(sb);
+      }
       qtyTd.appendChild(qi);
     }
 
